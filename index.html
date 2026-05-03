@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Echo AI Lab</title>
+<style>
+:root{--bg:#090d1a;--card:#151d33;--text:#e8edff;--muted:#96a3d4;--acc:#65e3ff;--acc2:#8b5cf6}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui}
+header{padding:14px;position:sticky;top:0;background:#0f1529cc;backdrop-filter:blur(6px);border-bottom:1px solid #ffffff1f}
+nav{display:flex;gap:8px;flex-wrap:wrap} button.tab{background:#1d2745;color:var(--text);border:1px solid #ffffff22;border-radius:10px;padding:9px 12px}
+button.active{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#051224;border:none}
+main{padding:12px;display:grid;gap:12px}.card{background:var(--card);border:1px solid #ffffff1c;border-radius:14px;padding:12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin-top:8px} input,select,textarea{width:100%;margin-top:4px;background:#0f1529;color:var(--text);border:1px solid #ffffff24;border-radius:10px;padding:9px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px} .hidden{display:none}
+#wave{width:100%;height:110px;background:#0d1430;border-radius:12px;border:1px solid #ffffff1d}
+small{color:var(--muted)} pre{white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body>
+<header>
+  <h2 style="margin:0 0 8px">Echo AI Lab (локально)</h2>
+  <nav>
+    <button class="tab active" data-tab="hub">Хаб</button>
+    <button class="tab" data-tab="builder">Конструктор</button>
+    <button class="tab" data-tab="trainer">Обучение</button>
+    <button class="tab" data-tab="studio">Студия</button>
+  </nav>
+</header>
+<main>
+<section id="hub" class="card tabp">
+  <h3>Основной узел</h3>
+  <p>Это главный интерфейс. Состояние модели хранится в localStorage, синхронизация между вкладками через BroadcastChannel.</p>
+  <pre id="stateView"></pre>
+</section>
+<section id="builder" class="card tabp hidden">
+  <h3>Конструктор нейросети</h3>
+  <div class="row">
+    <div><label>Имя модели<input id="mName"/></label></div>
+    <div><label>Режим<select id="mMode"><option>text</option><option>image</option><option>audio</option><option>video</option><option>multimodal</option></select></label></div>
+  </div>
+  <div class="row">
+    <div><label>Input size<input id="mIn" type="number" min="8" max="512"/></label></div>
+    <div><label>Hidden size<input id="mH" type="number" min="8" max="512"/></label></div>
+  </div>
+  <div class="row">
+    <div><label>Output size<input id="mOut" type="number" min="8" max="512"/></label></div>
+    <div><label>Learning rate<input id="mLr" type="number" step="0.001" min="0.001" max="1"/></label></div>
+  </div>
+  <button id="saveModel">Сохранить параметры</button>
+</section>
+<section id="trainer" class="card tabp hidden">
+  <h3>Обучение токенами</h3>
+  <label>Тренировочный текст<textarea id="trainText" rows="3" placeholder="одно слово или фраза"></textarea></label>
+  <div class="row">
+    <div><label>Image style<input id="imgStyle" placeholder="anime, photo..."/></label></div>
+    <div><label>Video preset<input id="vidPreset" placeholder="slowmo, timelapse..."/></label></div>
+  </div>
+  <button id="trainBtn">Обучить шаг</button>
+  <pre id="trainOut"></pre>
+</section>
+<section id="studio" class="card tabp hidden">
+  <h3>Инференс/Эхо</h3>
+  <button id="listenBtn">Слушать</button>
+  <canvas id="wave" width="700" height="110"></canvas>
+  <label>Или введите вручную<input id="inferText"/></label>
+  <button id="inferBtn">Сгенерировать всё</button>
+  <pre id="inferOut"></pre>
+  <small>Текст/изображение/аудио/видео здесь представлены как локальные заглушки-представления.</small>
+</section>
+</main>
+<script src="app/core.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const tabs = [...document.querySelectorAll('.tab')];
+const panes = [...document.querySelectorAll('.tabp')];
+for (const b of tabs) b.onclick = () => {tabs.forEach(x=>x.classList.remove('active')); b.classList.add('active'); panes.forEach(p=>p.classList.add('hidden')); $('#'+b.dataset.tab).classList.remove('hidden'); refresh();};
+
+function refresh(){ $('#stateView').textContent = JSON.stringify(EchoCore.loadState(), null, 2); }
+(function hydrate(){ const m=EchoCore.loadState().model; $('#mName').value=m.name; $('#mMode').value=m.mode; $('#mIn').value=m.inputSize; $('#mH').value=m.hiddenSize; $('#mOut').value=m.outputSize; $('#mLr').value=m.learningRate; refresh(); })();
+
+$('#saveModel').onclick = () => { EchoCore.updateModel({name:$('#mName').value,mode:$('#mMode').value,inputSize:+$('#mIn').value,hiddenSize:+$('#mH').value,outputSize:+$('#mOut').value,learningRate:+$('#mLr').value}); refresh(); };
+$('#trainBtn').onclick = () => { const res = EchoCore.trainSample({text:$('#trainText').value, modalities:{image:$('#imgStyle').value,video:$('#vidPreset').value}}); $('#trainOut').textContent=JSON.stringify(res,null,2); refresh(); };
+$('#inferBtn').onclick = () => runInfer($('#inferText').value);
+
+function runInfer(text){ const out = EchoCore.infer({text}); $('#inferOut').textContent = JSON.stringify(out,null,2); speak(out.text); energyTarget = Math.min(1, 0.2 + out.confidence); }
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const synth = window.speechSynthesis; const listenBtn = $('#listenBtn');
+let rec, listening=false; if (SR){ rec = new SR(); rec.lang='ru-RU'; rec.onresult=e=>{ const t=(e.results?.[0]?.[0]?.transcript||'').trim().toLowerCase(); $('#inferText').value=t; runInfer(t); }; rec.onstart=()=>{listening=true; listenBtn.textContent='Стоп'; energyTarget=1;}; rec.onend=()=>{listening=false; listenBtn.textContent='Слушать'; energyTarget=.2;}; }
+listenBtn.onclick=()=>{ if(!rec) return alert('SpeechRecognition недоступен'); listening?rec.stop():rec.start(); };
+function speak(t){ if(!synth||!t) return; synth.cancel(); const u=new SpeechSynthesisUtterance(t); u.lang='ru-RU'; synth.speak(u); }
+
+const c=$('#wave'),ctx=c.getContext('2d'); let energy=0,energyTarget=0.15;
+(function loop(ts){ energy += (energyTarget-energy)*0.1; ctx.clearRect(0,0,c.width,c.height); ctx.beginPath(); ctx.lineWidth=2.5; ctx.strokeStyle='#65e3ff'; const mid=c.height/2,amp=7+energy*28,f=.02+energy*.03; for(let x=0;x<c.width;x++){const y=mid+Math.sin(x*f+ts*.005)*amp+Math.sin(x*f*.37+ts*.002)*amp*.4; x?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); requestAnimationFrame(loop);})();
+
+if (EchoCore.channel) EchoCore.channel.onmessage = () => refresh();
+</script>
+</body></html>
